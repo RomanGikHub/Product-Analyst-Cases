@@ -1,0 +1,222 @@
+import bluetooth
+import h5py
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.signal import butter, lfilter
+from rpi_ws281x import PixelStrip, Color
+
+
+def find_bluetooth_devices():
+    print("Поиск устройств Bluetooth...")
+    devices = bluetooth.discover_devices(duration=8, lookup_names=True, lookup_class=False)
+
+    if devices:
+        print("Найдено устройств:", len(devices))
+        for addr, name in devices:
+            print(f"Устройство: {name}, Адрес: {addr}")
+    else:
+        print("Устройства не найдены.")
+
+find_bluetooth_devices()
+
+
+def read_hdf5_file(file_path):
+    try:
+        with h5py.File(file_path, 'r') as file:
+            print("Содержимое файла:")
+            def explore_group(group, prefix=""):
+                for key in group.keys():
+                    item = group[key]
+                    if isinstance(item, h5py.Group):
+                        print(f"{prefix}/{key} (Группа)")
+                        explore_group(item, prefix + "/" + key)
+                    elif isinstance(item, h5py.Dataset):
+                        print(f"{prefix}/{key} (Данные): {item.shape}, {item.dtype}")
+            explore_group(file)
+    except Exception as e:
+        print("Ошибка при чтении файла:", e)
+
+# Пример использования
+file_path = "C:\\Users\\upbut\\AppData\\Roaming\\Capsule Data\\Sessions\\5792d9df-09a5-4071-a78f-aec0045912fd\session_eeg.h5"  # Укажите путь к вашему файлу
+read_hdf5_file(file_path)
+
+
+def extract_and_plot_data(file_path, dataset_name):
+    try:
+        with h5py.File(file_path, 'r') as file:
+            # Читаем данные из набора
+            dataset = file[dataset_name]
+            timestamps = dataset['timestamp_name']  # Временные метки
+            eeg1 = dataset['eeg1_name']  # Канал 1
+            eeg2 = dataset['eeg2_name']  # Канал 2
+            eeg3 = dataset['eeg3_name']  # Канал 3
+            eeg4 = dataset['eeg4_name']  # Канал 4
+
+            # Выводим первые 5 значений для проверки
+            print("Первые 5 временных меток:", timestamps[:5])
+            print("Первые 5 значений EEG1:", eeg1[:5])
+            print("Первые 5 значений EEG2:", eeg2[:5])
+            print("Первые 5 значений EEG3:", eeg3[:5])
+            print("Первые 5 значений EEG4:", eeg4[:5])
+
+            # Построение графика
+            plt.figure(figsize=(10, 6))
+            plt.plot(timestamps[:1000], eeg1[:1000], label='EEG1')
+            plt.plot(timestamps[:1000], eeg2[:1000], label='EEG2')
+            plt.plot(timestamps[:1000], eeg3[:1000], label='EEG3')
+            plt.plot(timestamps[:1000], eeg4[:1000], label='EEG4')
+            plt.xlabel('Время (мс)')
+            plt.ylabel('Амплитуда сигнала')
+            plt.title('Сигналы EEG')
+            plt.legend()
+            plt.grid()
+            plt.show()
+
+    except KeyError as e:
+        print(f"Ошибка: Набор данных {dataset_name} не найден в файле.")
+    except Exception as e:
+        print("Ошибка:", e)
+
+# Пример использования
+file_path = r"C:\Users\upbut\AppData\Roaming\Capsule Data\Sessions\5792d9df-09a5-4071-a78f-aec0045912fd\session_eeg.h5"
+dataset_name = "eeg4_datasetName"
+extract_and_plot_data(file_path, dataset_name)
+
+
+def bandpass_filter(data, lowcut, highcut, fs, order=4):
+    nyquist = 0.5 * fs
+    low = lowcut / nyquist
+    high = highcut / nyquist
+    b, a = butter(order, [low, high], btype='band')
+    filtered_data = lfilter(b, a, data)
+    return filtered_data
+
+# Пример использования фильтра
+def process_eeg_data(file_path, dataset_name):
+    with h5py.File(file_path, 'r') as file:
+        dataset = file[dataset_name]
+        eeg1 = dataset['eeg1_name']
+        eeg2 = dataset['eeg2_name']
+        eeg3 = dataset['eeg3_name']
+        eeg4 = dataset['eeg4_name']
+
+        # Параметры фильтра
+        fs = 250  # Частота дискретизации (Гц)
+        lowcut = 1  # Нижняя граница (Гц)
+        highcut = 50  # Верхняя граница (Гц)
+
+        # Применяем фильтр
+        eeg1_filtered = bandpass_filter(eeg1[:1000], lowcut, highcut, fs)
+        eeg2_filtered = bandpass_filter(eeg2[:1000], lowcut, highcut, fs)
+        eeg3_filtered = bandpass_filter(eeg3[:1000], lowcut, highcut, fs)
+        eeg4_filtered = bandpass_filter(eeg4[:1000], lowcut, highcut, fs)
+
+        # Построение графика
+        plt.figure(figsize=(12, 8))
+        plt.plot(eeg1_filtered, label='EEG1 (Фильтрованный)')
+        plt.plot(eeg2_filtered, label='EEG2 (Фильтрованный)')
+        plt.plot(eeg3_filtered, label='EEG3 (Фильтрованный)')
+        plt.plot(eeg4_filtered, label='EEG4 (Фильтрованный)')
+        plt.xlabel('Отсчеты')
+        plt.ylabel('Амплитуда')
+        plt.title('Фильтрованные сигналы ЭЭГ')
+        plt.legend()
+        plt.grid()
+        plt.show()
+
+# Пример вызова
+process_eeg_data(file_path, dataset_name)
+
+def compute_band_powers(signal, fs):
+    # Вычисляем FFT
+    freqs = np.fft.rfftfreq(len(signal), d=1/fs)
+    fft_values = np.abs(np.fft.rfft(signal))**2
+
+    # Определяем мощность в каждом диапазоне
+    def band_power(freqs, fft_values, low, high):
+        band = np.logical_and(freqs >= low, freqs <= high)
+        return np.sum(fft_values[band])
+
+    delta = band_power(freqs, fft_values, 0.5, 4)
+    theta = band_power(freqs, fft_values, 4, 8)
+    alpha = band_power(freqs, fft_values, 8, 13)
+    beta = band_power(freqs, fft_values, 13, 30)
+    gamma = band_power(freqs, fft_values, 30, 50)
+
+    return {"Delta": delta, "Theta": theta, "Alpha": alpha, "Beta": beta, "Gamma": gamma}
+
+def analyze_eeg_bands(file_path, dataset_name):
+    with h5py.File(file_path, 'r') as file:
+        dataset = file[dataset_name]
+        eeg1 = dataset['eeg1_name']
+        eeg2 = dataset['eeg2_name']
+        eeg3 = dataset['eeg3_name']
+        eeg4 = dataset['eeg4_name']
+
+        fs = 250  # Частота дискретизации
+
+        # Рассчитываем мощность диапазонов для первых 1000 отсчетов каждого канала
+        bands_eeg1 = compute_band_powers(eeg1[:1000], fs)
+        bands_eeg2 = compute_band_powers(eeg2[:1000], fs)
+        bands_eeg3 = compute_band_powers(eeg3[:1000], fs)
+        bands_eeg4 = compute_band_powers(eeg4[:1000], fs)
+
+        # Выводим результаты
+        print("Мощности частотных диапазонов (EEG1):", bands_eeg1)
+        print("Мощности частотных диапазонов (EEG2):", bands_eeg2)
+        print("Мощности частотных диапазонов (EEG3):", bands_eeg3)
+        print("Мощности частотных диапазонов (EEG4):", bands_eeg4)
+
+# Пример вызова
+analyze_eeg_bands(file_path, dataset_name)
+
+# Конфигурация ленты
+LED_COUNT = 30      # Количество светодиодов
+LED_PIN = 18        # GPIO-пин (может отличаться в зависимости от вашей конфигурации)
+LED_FREQ_HZ = 800000  # Частота (Гц)
+LED_DMA = 10         # DMA-канал
+LED_BRIGHTNESS = 255  # Яркость (0-255)
+LED_INVERT = False    # Инверсия сигнала
+LED_CHANNEL = 0       # Канал
+
+# Инициализация ленты
+strip = PixelStrip(LED_COUNT, LED_PIN, LED_FREQ_HZ, LED_DMA, LED_INVERT, LED_BRIGHTNESS, LED_CHANNEL)
+strip.begin()
+
+def set_strip_color(strip, color):
+    """Устанавливает цвет всей ленты."""
+    for i in range(strip.numPixels()):
+        strip.setPixelColor(i, color)
+    strip.show()
+
+def map_bands_to_color(bands):
+    """Привязывает диапазоны частот к цветам."""
+    max_band = max(bands, key=bands.get)  # Находим доминирующий диапазон
+    if max_band == "Delta":
+        return Color(0, 0, 255)  # Синий
+    elif max_band == "Theta":
+        return Color(0, 255, 255)  # Голубой
+    elif max_band == "Alpha":
+        return Color(0, 255, 0)  # Зеленый
+    elif max_band == "Beta":
+        return Color(255, 255, 0)  # Желтый
+    elif max_band == "Gamma":
+        return Color(255, 0, 0)  # Красный
+    return Color(255, 255, 255)  # Белый (по умолчанию)
+
+def control_led_strip(file_path, dataset_name):
+    """Читает данные, анализирует диапазоны и меняет цвет ленты."""
+    with h5py.File(file_path, 'r') as file:
+        dataset = file[dataset_name]
+        eeg1 = dataset['eeg1_name']
+
+        fs = 250  # Частота дискретизации
+        bands = compute_band_powers(eeg1[:1000], fs)  # Анализ диапазонов
+        print("Мощности частотных диапазонов:", bands)
+
+        # Определяем цвет и устанавливаем его
+        color = map_bands_to_color(bands)
+        set_strip_color(strip, color)
+
+# Пример вызова
+control_led_strip(file_path, dataset_name)
