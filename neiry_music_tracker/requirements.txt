@@ -1,0 +1,7 @@
+PySide6>=6.6.0
+pyqtgraph>=0.13.3
+numpy>=1.26.0
+h5py>=3.10.0
+winrt-runtime>=2.0.0; sys_platform == "win32"
+winrt-Windows.Foundation>=2.0.0; sys_platform == "win32"
+winrt-Windows.Media.Control>=2.0.0; sys_platform == "win32"
